@@ -183,20 +183,21 @@ tr:hover td{background:var(--bg3)}
 
 <!-- RAW -->
 <div id="panel-raw" class="panel">
-  <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:1rem">
-    <div>
-      <div class="sec-label" style="margin-bottom:4px">날짜 필터</div>
-      <div class="date-chips" id="raw-dates"></div>
-    </div>
-    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-      <select id="raw-ccy" onchange="renderRaw()">
-        <option value="USD/KRW">USD/KRW</option>
-        <option value="AUD/KRW">AUD/KRW</option>
-        <option value="EUR/KRW">EUR/KRW</option>
-        <option value="JPY/KRW">JPY/KRW</option>
-        <option value="GBP/KRW">GBP/KRW</option>
-        <option value="CAD/KRW">CAD/KRW</option>
-      </select>
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:1rem;flex-wrap:wrap">
+    <span class="label">기간</span>
+    <select id="raw-from" onchange="renderRaw()" style="font-family:var(--mono);font-size:12px"></select>
+    <span class="label">~</span>
+    <select id="raw-to" onchange="renderRaw()" style="font-family:var(--mono);font-size:12px"></select>
+    <select id="raw-ccy" onchange="renderRaw()">
+      <option value="USD/KRW">USD/KRW</option>
+      <option value="AUD/KRW">AUD/KRW</option>
+      <option value="EUR/KRW">EUR/KRW</option>
+      <option value="JPY/KRW">JPY/KRW</option>
+      <option value="GBP/KRW">GBP/KRW</option>
+      <option value="CAD/KRW">CAD/KRW</option>
+    </select>
+    <span id="raw-count" style="font-family:var(--mono);font-size:11px;color:var(--text3)"></span>
+    <div style="margin-left:auto;display:flex;gap:6px">
       <button class="btn btn-sm" onclick="exportRawXlsx()">엑셀 다운로드</button>
       <button class="btn btn-sm" onclick="copyRawTable()">복사 (엑셀 붙여넣기용)</button>
     </div>
@@ -414,7 +415,7 @@ function importXlsx(){
       db.sort((a,b)=>a.date.localeCompare(b.date));
       saveDB(db);
       msgEl.innerHTML=`<div class="msg ok">${added}개 날짜 추가 완료. (${skipped}개 중복 건너뜀)</div>`;
-      updateMeta(); populateSelects(); populateDelSelect();
+      updateMeta(); populateSelects(); populateDelSelect(); populateRawDateSelects();
     } catch(err){
       msgEl.innerHTML=`<div class="msg err">파일 읽기 오류: ${err.message}</div>`;
     }
@@ -440,7 +441,7 @@ function deleteSelectedDate(){
   if(!confirm(`${date} 데이터를 삭제할까요?`)) return;
   saveDB(loadDB().filter(r=>r.date!==date));
   msgEl.innerHTML=`<div class="msg ok">${date} 삭제 완료.</div>`;
-  updateMeta(); populateSelects(); populateDelSelect();
+  updateMeta(); populateSelects(); populateDelSelect(); populateRawDateSelects();
 }
 
 function updateMeta(){
@@ -557,38 +558,46 @@ function exportCompareXlsx(){
 }
 
 // ── Raw 탭 ──
-let rawDateFilter='';
-function renderRawDates(){
-  const db=loadDB(), dates=db.map(r=>r.date).reverse();
-  document.getElementById('raw-dates').innerHTML=
-    `<span class="chip${!rawDateFilter?' active':''}" onclick="setRawDate('')">전체</span>`+
-    dates.map(d=>`<span class="chip${rawDateFilter===d?' active':''}" onclick="setRawDate('${d}')">
-      ${d}<span class="x" onclick="event.stopPropagation();deleteDate('${d}')">×</span></span>`).join('');
+function populateRawDateSelects(){
+  const db=loadDB();
+  const dates=db.map(r=>r.date).sort(); // oldest first
+  const fromSel=document.getElementById('raw-from');
+  const toSel=document.getElementById('raw-to');
+  if(!fromSel||!toSel) return;
+  const curFrom=fromSel.value, curTo=toSel.value;
+  const opts=dates.map(d=>`<option value="${d}">${d}</option>`).join('');
+  fromSel.innerHTML=opts;
+  toSel.innerHTML=opts;
+  // defaults: from = earliest, to = latest
+  fromSel.value = (curFrom && dates.includes(curFrom)) ? curFrom : dates[0]||'';
+  toSel.value   = (curTo   && dates.includes(curTo))   ? curTo   : dates[dates.length-1]||'';
 }
-function setRawDate(d){ rawDateFilter=d; renderRawDates(); renderRaw(); }
-function deleteDate(d){
-  if(!confirm(`${d} 데이터를 삭제할까요?`)) return;
-  saveDB(loadDB().filter(r=>r.date!==d));
-  if(rawDateFilter===d) rawDateFilter='';
-  updateMeta(); populateSelects(); renderRawDates(); renderRaw();
+
+function getRawFiltered(){
+  const db=loadDB();
+  const from=document.getElementById('raw-from')?.value||'';
+  const to=document.getElementById('raw-to')?.value||'';
+  return db.filter(r=>(!from||r.date>=from)&&(!to||r.date<=to));
 }
 
 function renderRaw(){
-  const db=loadDB(); renderRawDates();
+  populateRawDateSelects();
+  const rows=getRawFiltered();
   const ccy=document.getElementById('raw-ccy').value;
-  const rows=(rawDateFilter?db.filter(r=>r.date===rawDateFilter):db).reverse();
+  const countEl=document.getElementById('raw-count');
+  if(countEl) countEl.textContent=`${rows.length}일`;
   document.getElementById('raw-thead').innerHTML=`<th>날짜</th>`+TENORS.map(t=>`<th>${t}</th>`).join('');
-  document.getElementById('raw-tbody').innerHTML=rows.map(r=>{
+  document.getElementById('raw-tbody').innerHTML=[...rows].reverse().map(r=>{
     const d=r.data[ccy];
     return`<tr><td>${r.date}</td>${TENORS.map(t=>{const v=d?.[t];return v!=null?`<td class="${v<0?'val-neg':'val-pos'}">${(v*100).toFixed(2)}%</td>`:`<td style="color:var(--text3)">—</td>`;}).join('')}</tr>`;
   }).join('');
 }
 
-// ── 엑셀 다운로드 (전체 데이터) ──
 function exportRawXlsx(){
-  const db=loadDB();
+  const rows=getRawFiltered();
   const ccy=document.getElementById('raw-ccy').value;
-  const rows=(rawDateFilter?db.filter(r=>r.date===rawDateFilter):db);
+  const from=document.getElementById('raw-from')?.value||'';
+  const to=document.getElementById('raw-to')?.value||'';
   const wsData=[['일자',...TENORS]];
   rows.forEach(r=>{
     const d=r.data[ccy];
@@ -597,14 +606,12 @@ function exportRawXlsx(){
   const ws=XLSX.utils.aoa_to_sheet(wsData);
   const wb=XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb,ws,ccy.replace('/','_'));
-  XLSX.writeFile(wb,`CCS_${ccy.replace('/','_')}_${new Date().toISOString().slice(0,10)}.xlsx`);
+  XLSX.writeFile(wb,`CCS_${ccy.replace('/','_')}_${from}_${to}.xlsx`);
 }
 
-// ── 복사 (엑셀 붙여넣기용) ──
 function copyRawTable(){
-  const db=loadDB();
+  const rows=getRawFiltered();
   const ccy=document.getElementById('raw-ccy').value;
-  const rows=(rawDateFilter?db.filter(r=>r.date===rawDateFilter):db);
   const lines=['일자\t'+TENORS.join('\t')];
   rows.forEach(r=>{
     const d=r.data[ccy];
@@ -614,7 +621,7 @@ function copyRawTable(){
     const btn=event.target;
     const orig=btn.textContent;
     btn.textContent='✓ 복사됨';
-    setTimeout(()=>btn.textContent=orig, 1500);
+    setTimeout(()=>btn.textContent=orig,1500);
   });
 }
 
@@ -625,11 +632,11 @@ function switchTab(e,name){
   document.getElementById('panel-'+name).classList.add('active');
   if(name==='chart'){ buildTenorSel(); renderChart(); }
   if(name==='compare'){ populateSelects(); renderCompare(); }
-  if(name==='raw'){ renderRaw(); }
+  if(name==='raw'){ populateRawDateSelects(); renderRaw(); }
 }
 
 document.getElementById('i-date').value=new Date().toISOString().slice(0,10);
-updateMeta(); populateSelects(); populateDelSelect();
+updateMeta(); populateSelects(); populateDelSelect(); populateRawDateSelects();
 </script>
 </body>
 </html>
