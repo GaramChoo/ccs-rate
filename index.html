@@ -594,35 +594,66 @@ function renderRaw(){
 }
 
 function exportRawXlsx(){
-  const rows=getRawFiltered();
+  const rows=[...getRawFiltered()].reverse(); // 최근일자 위로
   const ccy=document.getElementById('raw-ccy').value;
   const from=document.getElementById('raw-from')?.value||'';
   const to=document.getElementById('raw-to')?.value||'';
   const wsData=[['일자',...TENORS]];
   rows.forEach(r=>{
     const d=r.data[ccy];
-    wsData.push([r.date,...TENORS.map(t=>d?.[t]!=null?parseFloat((d[t]*100).toFixed(4)):null)]);
+    // 소수값 그대로 저장 (-0.0106), 셀 서식을 % 로 지정해서 -1.06% 표시
+    wsData.push([r.date,...TENORS.map(t=>d?.[t]!=null?d[t]:null)]);
   });
   const ws=XLSX.utils.aoa_to_sheet(wsData);
+  // 데이터 셀(B2~K끝)에 퍼센트 서식 적용
+  const numRows=rows.length;
+  for(let c=1;c<=10;c++){
+    for(let r=1;r<=numRows;r++){
+      const cellRef=XLSX.utils.encode_cell({r,c});
+      if(ws[cellRef]) ws[cellRef].z='0.00%';
+    }
+  }
   const wb=XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb,ws,ccy.replace('/','_'));
   XLSX.writeFile(wb,`CCS_${ccy.replace('/','_')}_${from}_${to}.xlsx`);
 }
 
 function copyRawTable(){
-  const rows=getRawFiltered();
+  const rows=[...getRawFiltered()].reverse(); // 최근일자 위로
   const ccy=document.getElementById('raw-ccy').value;
   const lines=['일자\t'+TENORS.join('\t')];
   rows.forEach(r=>{
     const d=r.data[ccy];
-    lines.push(r.date+'\t'+TENORS.map(t=>d?.[t]!=null?(d[t]*100).toFixed(4):'').join('\t'));
+    // 소수값 그대로 복사 (-0.0106) → 엑셀 붙여넣기 후 셀 서식 % 지정
+    lines.push(r.date+'\t'+TENORS.map(t=>d?.[t]!=null?d[t]:'').join('\t'));
   });
-  navigator.clipboard.writeText(lines.join('\n')).then(()=>{
-    const btn=event.target;
-    const orig=btn.textContent;
+  const text=lines.join('\n');
+  const btn=event.target;
+  const orig=btn.textContent;
+  // clipboard API 우선, 실패 시 textarea fallback (로컬 파일 환경 대응)
+  if(navigator.clipboard && window.isSecureContext){
+    navigator.clipboard.writeText(text).then(()=>{
+      btn.textContent='✓ 복사됨'; setTimeout(()=>btn.textContent=orig,1500);
+    }).catch(()=>fallbackCopy(text,btn,orig));
+  } else {
+    fallbackCopy(text,btn,orig);
+  }
+}
+
+function fallbackCopy(text,btn,orig){
+  const ta=document.createElement('textarea');
+  ta.value=text;
+  ta.style.cssText='position:fixed;top:0;left:0;opacity:0';
+  document.body.appendChild(ta);
+  ta.focus(); ta.select();
+  try{
+    document.execCommand('copy');
     btn.textContent='✓ 복사됨';
-    setTimeout(()=>btn.textContent=orig,1500);
-  });
+  } catch(e){
+    btn.textContent='복사 실패';
+  }
+  setTimeout(()=>btn.textContent=orig,1500);
+  document.body.removeChild(ta);
 }
 
 function switchTab(e,name){
